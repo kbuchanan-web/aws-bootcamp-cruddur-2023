@@ -31,6 +31,11 @@ import watchtower
 import logging
 from time import strftime
 
+# ROLLBAR
+import rollbar
+import rollbar.contrib.flask
+from flask import got_request_exception
+
 #XRAY
 xray_url = os.getenv("AWS_XRAY_URL")
 xray_recorder.configure(service='backend-flask', dynamic_naming=xray_url)
@@ -41,6 +46,7 @@ processor = BatchSpanProcessor(OTLPSpanExporter())
 provider.add_span_processor(processor)
 trace.set_tracer_provider(provider)
 tracer = trace.get_tracer(__name__)
+
 
 # Configuring Logger to Use CloudWatch
 LOGGER = logging.getLogger(__name__)
@@ -73,12 +79,49 @@ cors = CORS(
   methods="OPTIONS,GET,HEAD,POST"
 )
 
+# ROLLBAR
+## XXX hack to make request data work with pyrollbar <= 0.16.3
+def _get_flask_request():
+    print("Getting flask request")
+    from flask import request
+    print("request:", request)
+    return request
+rollbar._get_flask_request = _get_flask_request
+
+def _build_request_data(request):
+    return rollbar._build_werkzeug_request_data(request)
+rollbar._build_request_data = _build_request_data
+## XXX end hack
+
+def init_rollbar(app):
+  rollbar_access_token = os.getenv('ROLLBAR_ACCESS_TOKEN')
+  flask_env = os.getenv('FLASK_ENV')
+  rollbar.init(
+      # access token
+      rollbar_access_token,
+      # environment name
+      flask_env,
+      # server root directory, makes tracebacks prettier
+      root=os.path.dirname(os.path.realpath(__file__)),
+      # flask already sets up logging
+      allow_logging_basic_config=False)
+  # send exceptions from `app` to rollbar, using flask's signal system.
+  got_request_exception.connect(rollbar.contrib.flask.report_exception, app)
+  return rollbar
+
+
 # Configuring Logger to Use CloudWatch
 @app.after_request
 def after_request(response):
     timestamp = strftime('[%Y-%b-%d %H:%M]')
     LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
     return response
+
+# test endpoint for Rollbar
+@app.route('/rollbar/test')
+def rollbar_test():
+    rollbar.report_message('Hello World!', 'warning')
+    return "Hello World!"
 
 @app.route("/api/message_groups", methods=['GET'])
 def data_message_groups():
