@@ -93,23 +93,22 @@ def _build_request_data(request):
 rollbar._build_request_data = _build_request_data
 ## XXX end hack
 
+rollbar_access_token = os.getenv('ROLLBAR_ACCESS_TOKEN')
 
-#flask_env = os.getenv('FLASK_ENV')
-def init_rollbar(app):
-  rollbar_access_token = os.getenv('ROLLBAR_ACCESS_TOKEN')
-  rollbar.init(
-      # access token
-      rollbar_access_token,
-      # environment name
-      'production',
-      # server root directory, makes tracebacks prettier
-      root=os.path.dirname(os.path.realpath(__file__)),
-      # flask already sets up logging
-      allow_logging_basic_config=False)
-  # send exceptions from `app` to rollbar, using flask's signal system.
-  got_request_exception.connect(rollbar.contrib.flask.report_exception, app)
-  return rollbar
+with app.app_context():
+  
+    rollbar.init(
+        # access token
+        rollbar_access_token,
+        # environment name
+        'production',
+        # server root directory, makes tracebacks prettier
+        root=os.path.dirname(os.path.realpath(__file__)),
+        # flask already sets up logging
+        allow_logging_basic_config=False)
 
+    # send exceptions from `app` to rollbar, using flask's signal system.
+    got_request_exception.connect(rollbar.contrib.flask.report_exception, app)
 
 # Configuring Logger to Use CloudWatch
 @app.after_request
